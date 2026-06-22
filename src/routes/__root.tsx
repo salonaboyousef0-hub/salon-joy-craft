@@ -76,20 +76,38 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   head: () => ({
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
+      { name: "theme-color", content: "#0a0a0a" },
+      { name: "mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
+      { name: "apple-mobile-web-app-title", content: "المدير" },
+      { title: "المدير — صالون أبو يوسف" },
+      { name: "description", content: "المساعد الذكي لإدارة صالون أبو يوسف — قرارات، مهام، جداول وحوافز." },
+      { property: "og:title", content: "المدير — صالون أبو يوسف" },
+      { property: "og:description", content: "المساعد الذكي لإدارة صالون أبو يوسف — قرارات، مهام، جداول وحوافز." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:title", content: "المدير — صالون أبو يوسف" },
+      { name: "twitter:description", content: "المساعد الذكي لإدارة صالون أبو يوسف — قرارات، مهام، جداول وحوافز." },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/90411e84-ac98-45fa-85ee-093e4713693f/id-preview-4d0e903d--d5781121-37ac-4e7a-ad80-00ea15c5fdf1.lovable.app-1780800696418.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/90411e84-ac98-45fa-85ee-093e4713693f/id-preview-4d0e903d--d5781121-37ac-4e7a-ad80-00ea15c5fdf1.lovable.app-1780800696418.png" },
     ],
     links: [
       {
         rel: "stylesheet",
         href: appCss,
+      },
+      { rel: "manifest", href: "/manifest.webmanifest" },
+      { rel: "icon", type: "image/png", sizes: "192x192", href: "/icon-192.png" },
+      { rel: "icon", type: "image/png", sizes: "512x512", href: "/icon-512.png" },
+      { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
+      { rel: "preconnect", href: "https://fonts.googleapis.com" },
+      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
+      {
+        rel: "stylesheet",
+        href: "https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap",
       },
     ],
   }),
@@ -101,7 +119,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootShell({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="ar" dir="rtl">
       <head>
         <HeadContent />
       </head>
