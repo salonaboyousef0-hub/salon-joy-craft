@@ -246,7 +246,7 @@ export const askManager = createServerFn({ method: "POST" })
     } else {
       useTools = true;
       systemPrompt +=
-        "\n\nعندك سيطرة كاملة على نظام الكاشير (متعدد الفروع) عن طريق الأدوات: add_operation, list_operations, delete_operation, update_operation, get_stats, list_branches, add_branch. كل عملية مربوطة بـ branch (اسم الفرع). لو صاحب المحل بعت لك سياق فيه (الفرع النشط: ...) استخدمه افتراضياً في الإضافة والقراءة. لو طلب تقارير لكل الفروع متمررش branch. لو ذكر فرع تاني بالاسم، استخدمه. قبل أي تعديل أو حذف استدعِ list_operations الأول لتجيب الـ id. بعد التنفيذ أكّد بسطر قصير ووضّح الفرع.";
+        "\n\nعندك سيطرة كاملة على نظام الكاشير (متعدد الفروع) عن طريق الأدوات: add_operation, list_operations, delete_operation, update_operation, get_stats, list_branches, add_branch. وعندك كمان أدوات الإدارة: list_employees, set_target, get_targets, add_task, list_tasks, complete_task. قبل أي رأي عن الأداء أو التارجت استدعِ get_targets / get_stats الأول. لما توزع نضافة أو متابعة استخدم add_task واسم المساعد بالعدل بالتناوب. كل عملية مربوطة بـ branch (اسم الفرع). لو صاحب المحل بعت لك سياق فيه (الفرع النشط: ...) استخدمه افتراضياً. قبل أي تعديل أو حذف استدعِ list_operations الأول لتجيب الـ id. بعد التنفيذ أكّد بسطر قصير ووضّح الفرع.";
     }
 
     const userExtra = data.extra ? `\n\nسياق إضافي من صاحب المحل:\n${data.extra}` : "";
