@@ -1,0 +1,1 @@
+INSERT INTO public.salons (id, owner_id, name) VALUES (gen_random_uuid(), '00000000-0000-0000-0000-000000000000', 'صالون أبو يوسف') ON CONFLICT DO NOTHING; UPDATE public.branches SET salon_id = (SELECT id FROM public.salons ORDER BY created_at ASC LIMIT 1) WHERE salon_id IS NULL;
