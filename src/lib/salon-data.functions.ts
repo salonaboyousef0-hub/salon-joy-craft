@@ -1,25 +1,6 @@
-import { createServerFn, createMiddleware } from "@tanstack/react-start";
+import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-
-// Internal app — no auth. Inject the service-role client and a default salon id.
-const withSalonContext = createMiddleware({ type: "function" }).server(async ({ next }) => {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  return next({ context: { supabase: supabaseAdmin as any, userId: null as unknown as string } });
-});
-
-// Resolve a default salon — first row in `salons`. App is single-tenant internal use.
-async function resolveSalonId(supabase: any, _userId: unknown, override?: string) {
-  if (override) return override;
-  const { data, error } = await (supabase as any)
-    .from("salons")
-    .select("id")
-    .order("created_at", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  if (!data?.id) throw new Error("No salon found. Create a salon row first.");
-  return data.id as string;
-}
+import { withSalonContext, resolveSalonId } from "./salon-data.server";
 
 const Id = z.string().uuid();
 const SalonOverride = z.object({ salonId: Id.optional() });
