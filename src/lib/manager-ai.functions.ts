@@ -112,6 +112,78 @@ const TOOLS = [
       },
     },
   },
+  {
+    type: "function" as const,
+    function: {
+      name: "list_employees",
+      description: "جيب الموظفين النشطين (الحلاقين والمساعدين) من قاعدة بيانات المدير. فلتر اختياري role=barber|assistant، branch.",
+      parameters: { type: "object", properties: { role: { type: "string" }, branch: { type: "string" } } },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "set_target",
+      description: "حدد/حدّث تارجت شهري لحلاق أو فرع. month بصيغة YYYY-MM. يعمل upsert على (entity_type, entity_name, month).",
+      parameters: {
+        type: "object",
+        properties: {
+          entity_type: { type: "string", description: "barber أو branch" },
+          entity_name: { type: "string" },
+          month: { type: "string", description: "YYYY-MM" },
+          target_amount: { type: "number" },
+        },
+        required: ["entity_type", "entity_name", "month", "target_amount"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_targets",
+      description: "اقرأ التارجتات للشهر مع الإيراد الفعلي ونسبة الإنجاز %. لو ما مرّرتش month يستخدم الشهر الحالي.",
+      parameters: { type: "object", properties: { month: { type: "string" }, entity_type: { type: "string" } } },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "add_task",
+      description: "أضف مهمة يومية لموظف. category: نظافة|متابعة|عمليات|تطوير|أخرى. priority: high|medium|low. task_date افتراضي اليوم.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string" },
+          category: { type: "string" },
+          assignee: { type: "string" },
+          priority: { type: "string" },
+          task_date: { type: "string", description: "YYYY-MM-DD" },
+          notes: { type: "string" },
+        },
+        required: ["title", "assignee"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "list_tasks",
+      description: "اقرأ مهام اليوم (افتراضياً) مع فلاتر assignee/status. status: pending|done|cancelled.",
+      parameters: { type: "object", properties: { assignee: { type: "string" }, status: { type: "string" }, task_date: { type: "string" } } },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "complete_task",
+      description: "علّم مهمة كمنفّذة (done) أو ملغية (cancelled).",
+      parameters: {
+        type: "object",
+        properties: { id: { type: "string" }, status: { type: "string", description: "done أو cancelled" } },
+        required: ["id"],
+      },
+    },
+  },
 ];
 
 const SAFE_BARBERS = ["مصطفى يوسف", "احمد ياسر", "عزت نصر"];
@@ -375,6 +447,100 @@ export const askManager = createServerFn({ method: "POST" })
             if (error) throw new Error(error.message);
             executedActions.push({ tool: "add_branch", service: parsed.name, amount: 0, barber: "", assistant: null, ok: true, error: null, id: row?.id ?? null });
             messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ ok: true, branch: row }) });
+          } else if (name === "list_employees") {
+            const p = z.object({ role: z.string().optional(), branch: z.string().optional() }).parse(args);
+            let q = supabaseAdmin.from("ai_employees" as any).select("*").eq("active", true);
+            if (p.role) q = q.eq("role", p.role);
+            if (p.branch) q = q.eq("branch", p.branch);
+            const { data: rows, error } = await q;
+            if (error) throw new Error(error.message);
+            messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ ok: true, employees: rows ?? [] }) });
+          } else if (name === "set_target") {
+            const p = z.object({
+              entity_type: z.enum(["barber", "branch"]),
+              entity_name: z.string().min(1).max(120),
+              month: z.string().regex(/^\d{4}-\d{2}$/),
+              target_amount: z.number().nonnegative().max(100000000),
+            }).parse(args);
+            const { data: row, error } = await supabaseAdmin
+              .from("ai_targets" as any)
+              .upsert({ entity_type: p.entity_type, entity_name: p.entity_name, month: p.month, target_amount: p.target_amount, updated_at: new Date().toISOString() }, { onConflict: "entity_type,entity_name,month" })
+              .select()
+              .single();
+            if (error) throw new Error(error.message);
+            messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ ok: true, target: row }) });
+          } else if (name === "get_targets") {
+            const p = z.object({ month: z.string().regex(/^\d{4}-\d{2}$/).optional(), entity_type: z.string().optional() }).parse(args);
+            const now = new Date();
+            const month = p.month ?? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+            let tq = supabaseAdmin.from("ai_targets" as any).select("*").eq("month", month);
+            if (p.entity_type) tq = tq.eq("entity_type", p.entity_type);
+            const { data: targets, error: terr } = await tq;
+            if (terr) throw new Error(terr.message);
+            const [y, m] = month.split("-").map(Number);
+            const startMonth = new Date(y, m - 1, 1).toISOString();
+            const endMonth = new Date(y, m, 1).toISOString();
+            const { data: ops, error: oerr } = await supabaseAdmin.from("operations").select("amount, barber, branch").gte("created_at", startMonth).lt("created_at", endMonth);
+            if (oerr) throw new Error(oerr.message);
+            const byBarber: Record<string, number> = {};
+            const byBranch: Record<string, number> = {};
+            for (const r of ops ?? []) {
+              byBarber[r.barber] = (byBarber[r.barber] ?? 0) + Number(r.amount);
+              byBranch[r.branch] = (byBranch[r.branch] ?? 0) + Number(r.amount);
+            }
+            const enriched = (targets ?? []).map((t: any) => {
+              const actual = t.entity_type === "barber" ? (byBarber[t.entity_name] ?? 0) : (byBranch[t.entity_name] ?? 0);
+              const target = Number(t.target_amount) || 0;
+              const pct = target > 0 ? Math.round((actual / target) * 100) : 0;
+              return { ...t, actual, achievement_pct: pct };
+            });
+            messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ ok: true, month, targets: enriched }) });
+          } else if (name === "add_task") {
+            const p = z.object({
+              title: z.string().min(1).max(300),
+              category: z.string().max(60).optional(),
+              assignee: z.string().min(1).max(120),
+              priority: z.enum(["high", "medium", "low"]).optional(),
+              task_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+              notes: z.string().max(2000).optional(),
+            }).parse(args);
+            const today = new Date().toISOString().slice(0, 10);
+            const prMap: Record<string, string> = { high: "high", medium: "medium", low: "low" };
+            const { data: row, error } = await supabaseAdmin
+              .from("tasks")
+              .insert({
+                title: p.title,
+                category: p.category ?? null,
+                assignee: p.assignee,
+                priority: (prMap[p.priority ?? "medium"] as any),
+                status: "pending" as any,
+                task_date: p.task_date ?? today,
+                notes: p.notes ?? null,
+              } as any)
+              .select()
+              .single();
+            if (error) throw new Error(error.message);
+            executedActions.push({ tool: "add_task", service: p.title, amount: 0, barber: "", assistant: p.assignee, ok: true, error: null, id: (row as any)?.id ?? null });
+            messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ ok: true, task: row }) });
+          } else if (name === "list_tasks") {
+            const p = z.object({ assignee: z.string().optional(), status: z.string().optional(), task_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).parse(args);
+            const today = new Date().toISOString().slice(0, 10);
+            let q = supabaseAdmin.from("tasks").select("id, title, category, assignee, priority, status, task_date, notes, created_at").eq("task_date", p.task_date ?? today).order("created_at", { ascending: false });
+            if (p.assignee) q = q.eq("assignee", p.assignee);
+            if (p.status) {
+              const dbStatus = p.status === "done" ? "completed" : p.status;
+              q = q.eq("status", dbStatus as any);
+            }
+            const { data: rows, error } = await q;
+            if (error) throw new Error(error.message);
+            messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ ok: true, tasks: rows ?? [] }) });
+          } else if (name === "complete_task") {
+            const p = z.object({ id: z.string().uuid(), status: z.enum(["done", "cancelled"]).default("done") }).parse(args);
+            const dbStatus = p.status === "done" ? "completed" : "cancelled";
+            const { data: row, error } = await supabaseAdmin.from("tasks").update({ status: dbStatus as any }).eq("id", p.id).select().single();
+            if (error) throw new Error(error.message);
+            executedActions.push({ tool: "complete_task", service: "", amount: 0, barber: "", assistant: null, ok: true, error: null, id: p.id });
+            messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ ok: true, task: row }) });
           } else {
             messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ ok: false, error: "أداة غير معروفة" }) });
           }
