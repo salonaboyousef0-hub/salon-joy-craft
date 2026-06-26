@@ -1,7 +1,6 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { LayoutDashboard, ListChecks, MessageCircle, CalendarDays, Settings2, Receipt, Network, BarChart3 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 
 import { Dashboard } from "@/components/salon/Dashboard";
 import { TaskManager } from "@/components/salon/TaskManager";
@@ -13,11 +12,6 @@ import { ExternalBranches } from "@/components/salon/ExternalBranches";
 import { BranchOverview } from "@/components/salon/BranchOverview";
 
 export const Route = createFileRoute("/")({
-  ssr: false,
-  beforeLoad: async () => {
-    const { data } = await supabase.auth.getUser();
-    if (!data.user) throw redirect({ to: "/auth" });
-  },
   head: () => ({
     meta: [
       { title: "المدير — صالون أبو يوسف" },
