@@ -28,10 +28,14 @@ const STATUSES: { value: Status; label: string; color: string }[] = [
 ];
 
 export function TaskManager() {
-  const [user, setUser] = useState<{ id: string; email: string | null } | null>(null);
-  const [authChecked, setAuthChecked] = useState(false);
-  const [isOwner, setIsOwner] = useState(false);
-  const [managedBranchIds, setManagedBranchIds] = useState<string[]>([]);
+  // Internal tool — no auth required. Use a system stub user.
+  const [user] = useState<{ id: string; email: string | null }>({
+    id: "00000000-0000-0000-0000-000000000000",
+    email: "system@internal",
+  });
+  const authChecked = true;
+  const isOwner = true;
+  const managedBranchIds: string[] = [];
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -49,32 +53,7 @@ export function TaskManager() {
     due_date: "",
   });
 
-  // Auth bootstrap
-  useEffect(() => {
-    let mounted = true;
-    supabase.auth.getUser().then(async ({ data }) => {
-      if (!mounted) return;
-      const u = data.user;
-      setUser(u ? { id: u.id, email: u.email ?? null } : null);
-      setAuthChecked(true);
-      if (u) {
-        const { data: owns } = await supabase
-          .from("salons").select("id").eq("owner_id", u.id).limit(1);
-        setIsOwner((owns?.length ?? 0) > 0);
-        const { data: mng } = await supabase
-          .from("external_branches").select("id").eq("manager_user_id", u.id);
-        setManagedBranchIds((mng ?? []).map((r) => r.id));
-      }
-    });
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
-      const u = s?.user;
-      setUser(u ? { id: u.id, email: u.email ?? null } : null);
-    });
-    return () => {
-      mounted = false;
-      sub.subscription.unsubscribe();
-    };
-  }, []);
+  // No auth bootstrap — internal tool.
 
   async function loadAll() {
     setLoading(true);
@@ -130,8 +109,7 @@ export function TaskManager() {
   }
 
   async function signOut() {
-    await supabase.auth.signOut();
-    setUser(null);
+    // no-op: internal tool, no sign-out
   }
 
   const filtered = useMemo(() => {
@@ -142,25 +120,7 @@ export function TaskManager() {
     });
   }, [tasks, filterStatus, filterBranch]);
 
-  if (!authChecked) {
-    return <div className="grid place-items-center py-12"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
-  }
-
-  if (!user) {
-    return (
-      <div className="rounded-3xl border border-dashed border-border p-8 text-center">
-        <h2 className="text-lg font-bold">سجّل الدخول لإدارة المهام</h2>
-        <p className="mt-1 text-sm text-muted-foreground">المهام والصلاحيات تحتاج حساب.</p>
-        <a
-          href="/auth"
-          className="mt-4 inline-block rounded-full px-5 py-2 text-sm font-semibold"
-          style={{ background: "var(--gradient-gold)", color: "#1a1500" }}
-        >
-          تسجيل الدخول
-        </a>
-      </div>
-    );
-  }
+  void authChecked;
 
   const canCreate = isOwner;
   const branchName = (id: string | null) =>
