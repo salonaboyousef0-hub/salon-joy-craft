@@ -1,0 +1,1 @@
+-- See /tmp/all_migrations.sql; placeholder, full SQL applied via next call
