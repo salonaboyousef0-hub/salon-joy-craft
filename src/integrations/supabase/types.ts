@@ -14,6 +14,63 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_employees: {
+        Row: {
+          active: boolean
+          branch: string | null
+          created_at: string
+          id: string
+          name: string
+          role: string
+        }
+        Insert: {
+          active?: boolean
+          branch?: string | null
+          created_at?: string
+          id?: string
+          name: string
+          role: string
+        }
+        Update: {
+          active?: boolean
+          branch?: string | null
+          created_at?: string
+          id?: string
+          name?: string
+          role?: string
+        }
+        Relationships: []
+      }
+      ai_targets: {
+        Row: {
+          created_at: string
+          entity_name: string
+          entity_type: string
+          id: string
+          month: string
+          target_amount: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          entity_name: string
+          entity_type: string
+          id?: string
+          month: string
+          target_amount?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          entity_name?: string
+          entity_type?: string
+          id?: string
+          month?: string
+          target_amount?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       attendance: {
         Row: {
           attendance_date: string
@@ -1004,44 +1061,56 @@ export type Database = {
       }
       tasks: {
         Row: {
+          assignee: string | null
           branch_id: string | null
+          category: string | null
           completed_at: string | null
           created_at: string
           created_by: string | null
           description: string | null
           due_date: string | null
           id: string
+          notes: string | null
           priority: Database["public"]["Enums"]["task_priority"]
           proof_url: string | null
           status: Database["public"]["Enums"]["task_status"]
+          task_date: string | null
           title: string
           updated_at: string
         }
         Insert: {
+          assignee?: string | null
           branch_id?: string | null
+          category?: string | null
           completed_at?: string | null
           created_at?: string
           created_by?: string | null
           description?: string | null
           due_date?: string | null
           id?: string
+          notes?: string | null
           priority?: Database["public"]["Enums"]["task_priority"]
           proof_url?: string | null
           status?: Database["public"]["Enums"]["task_status"]
+          task_date?: string | null
           title: string
           updated_at?: string
         }
         Update: {
+          assignee?: string | null
           branch_id?: string | null
+          category?: string | null
           completed_at?: string | null
           created_at?: string
           created_by?: string | null
           description?: string | null
           due_date?: string | null
           id?: string
+          notes?: string | null
           priority?: Database["public"]["Enums"]["task_priority"]
           proof_url?: string | null
           status?: Database["public"]["Enums"]["task_status"]
+          task_date?: string | null
           title?: string
           updated_at?: string
         }
