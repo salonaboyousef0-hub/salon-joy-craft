@@ -23,7 +23,7 @@ const SalonOverride = z.object({ salonId: Id.optional() });
 /* -------------------- STATS -------------------- */
 
 export const getSalonStats = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([withSalonContext])
   .inputValidator(SalonOverride.extend({ days: z.number().int().min(1).max(366).default(60) }).parse)
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
@@ -38,7 +38,7 @@ export const getSalonStats = createServerFn({ method: "POST" })
   });
 
 export const upsertSalonStat = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([withSalonContext])
   .inputValidator(SalonOverride.extend({
     stat_date: z.string().optional(),
     daily_revenue: z.number().nonnegative().optional(),
@@ -67,7 +67,7 @@ export const upsertSalonStat = createServerFn({ method: "POST" })
 
 function makeList(table: string, orderBy = "created_at", asc = false) {
   return createServerFn({ method: "POST" })
-    .middleware([requireSupabaseAuth])
+    .middleware([withSalonContext])
     .inputValidator((d: unknown) => SalonOverride.parse(d ?? {}))
     .handler(async ({ data, context }) => {
       const { supabase, userId } = context;
@@ -82,7 +82,7 @@ function makeList(table: string, orderBy = "created_at", asc = false) {
 
 function makeDelete(table: string) {
   return createServerFn({ method: "POST" })
-    .middleware([requireSupabaseAuth])
+    .middleware([withSalonContext])
     .inputValidator(z.object({ id: Id }).parse)
     .handler(async ({ data, context }) => {
       const { error } = await (context.supabase as any).from(table).delete().eq("id", data.id);
@@ -94,7 +94,7 @@ function makeDelete(table: string) {
 /* -------------------- EXPENSES -------------------- */
 export const listExpenses = makeList("expenses", "expense_date");
 export const saveExpense = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([withSalonContext])
   .inputValidator(SalonOverride.extend({
     id: Id.optional(),
     category: z.string().min(1).max(80),
@@ -124,7 +124,7 @@ export const deleteExpense = makeDelete("expenses");
 /* -------------------- EMPLOYEES -------------------- */
 export const listEmployees = makeList("employees", "name", true);
 export const saveEmployee = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([withSalonContext])
   .inputValidator(SalonOverride.extend({
     id: Id.optional(),
     name: z.string().min(1).max(120),
@@ -151,7 +151,7 @@ export const deleteEmployee = makeDelete("employees");
 /* -------------------- SERVICES -------------------- */
 export const listServices = makeList("services", "name", true);
 export const saveService = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([withSalonContext])
   .inputValidator(SalonOverride.extend({
     id: Id.optional(),
     name: z.string().min(1).max(120),
@@ -177,7 +177,7 @@ export const deleteService = makeDelete("services");
 /* -------------------- CLIENTS -------------------- */
 export const listClients = makeList("clients", "name", true);
 export const saveClient = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([withSalonContext])
   .inputValidator(SalonOverride.extend({
     id: Id.optional(),
     name: z.string().min(1).max(120),
@@ -204,7 +204,7 @@ export const deleteClient = makeDelete("clients");
 /* -------------------- BOOKINGS -------------------- */
 export const listBookings = makeList("bookings", "scheduled_at", true);
 export const saveBooking = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([withSalonContext])
   .inputValidator(SalonOverride.extend({
     id: Id.optional(),
     client_id: Id.nullable().optional(),
@@ -243,7 +243,7 @@ export const deleteBooking = makeDelete("bookings");
 /* -------------------- WITHDRAWALS -------------------- */
 export const listWithdrawals = makeList("withdrawals", "withdrawal_date");
 export const saveWithdrawal = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([withSalonContext])
   .inputValidator(SalonOverride.extend({
     id: Id.optional(),
     employee_id: Id.nullable().optional(),
@@ -273,7 +273,7 @@ export const deleteWithdrawal = makeDelete("withdrawals");
 /* -------------------- ATTENDANCE -------------------- */
 export const listAttendance = makeList("attendance", "attendance_date");
 export const saveAttendance = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([withSalonContext])
   .inputValidator(SalonOverride.extend({
     id: Id.optional(),
     employee_id: Id.nullable().optional(),
@@ -305,7 +305,7 @@ export const deleteAttendance = makeDelete("attendance");
 
 /* -------------------- SCHEDULES (weekly grid) -------------------- */
 export const listSchedules = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([withSalonContext])
   .inputValidator((d: unknown) => SalonOverride.extend({ week_start: z.string().optional() }).parse(d ?? {}))
   .handler(async ({ data, context }) => {
     const salonId = await resolveSalonId(context.supabase, context.userId, data.salonId);
@@ -317,7 +317,7 @@ export const listSchedules = createServerFn({ method: "POST" })
   });
 
 export const upsertSchedule = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([withSalonContext])
   .inputValidator(SalonOverride.extend({
     week_start: z.string(),
     day_name: z.string().min(1).max(20),
@@ -340,7 +340,7 @@ export const upsertSchedule = createServerFn({ method: "POST" })
 /* -------------------- REVENUE TARGETS (owner only via RLS) -------------------- */
 export const listRevenueTargets = makeList("revenue_targets", "target_month");
 export const saveRevenueTarget = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([withSalonContext])
   .inputValidator(SalonOverride.extend({
     branch: z.string().max(120).optional().nullable(),
     target_month: z.string(),
@@ -362,7 +362,7 @@ export const deleteRevenueTarget = makeDelete("revenue_targets");
 /* -------------------- STAFF WARNINGS (owner only via RLS) -------------------- */
 export const listStaffWarnings = makeList("staff_warnings", "warning_date");
 export const saveStaffWarning = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([withSalonContext])
   .inputValidator(SalonOverride.extend({
     id: Id.optional(),
     staff: z.string().min(1).max(120),
@@ -387,7 +387,7 @@ export const deleteStaffWarning = makeDelete("staff_warnings");
 /* -------------------- BRANCH KPIs -------------------- */
 export const listBranchKpis = makeList("branch_kpis", "recorded_at");
 export const saveBranchKpi = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([withSalonContext])
   .inputValidator(SalonOverride.extend({
     id: Id.optional(),
     branch: z.string().max(120).optional().nullable(),
@@ -412,7 +412,7 @@ export const deleteBranchKpi = makeDelete("branch_kpis");
 
 /* -------------------- CHECKLISTS -------------------- */
 export const listChecklists = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([withSalonContext])
   .inputValidator((d: unknown) => SalonOverride.parse(d ?? {}))
   .handler(async ({ data, context }) => {
     const salonId = await resolveSalonId(context.supabase, context.userId, data.salonId);
@@ -425,7 +425,7 @@ export const listChecklists = createServerFn({ method: "POST" })
   });
 
 export const saveChecklist = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([withSalonContext])
   .inputValidator(SalonOverride.extend({
     id: Id.optional(), title: z.string().min(1).max(200),
   }).parse)
@@ -442,7 +442,7 @@ export const saveChecklist = createServerFn({ method: "POST" })
 export const deleteChecklist = makeDelete("checklists");
 
 export const saveChecklistItem = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([withSalonContext])
   .inputValidator(SalonOverride.extend({
     id: Id.optional(),
     checklist_id: Id,
@@ -468,7 +468,7 @@ export const deleteChecklistItem = makeDelete("checklist_items");
 
 /* -------------------- CHAT MESSAGES -------------------- */
 export const listChatMessages = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([withSalonContext])
   .inputValidator((d: unknown) => SalonOverride.extend({ limit: z.number().int().min(1).max(500).default(200) }).parse(d ?? {}))
   .handler(async ({ data, context }) => {
     const salonId = await resolveSalonId(context.supabase, context.userId, data.salonId);
@@ -480,7 +480,7 @@ export const listChatMessages = createServerFn({ method: "POST" })
   });
 
 export const appendChatMessage = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([withSalonContext])
   .inputValidator(SalonOverride.extend({
     role: z.enum(["user","assistant","system"]),
     content: z.string().min(1).max(8000),
@@ -495,7 +495,7 @@ export const appendChatMessage = createServerFn({ method: "POST" })
   });
 
 export const clearChatMessages = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([withSalonContext])
   .inputValidator((d: unknown) => SalonOverride.parse(d ?? {}))
   .handler(async ({ data, context }) => {
     const salonId = await resolveSalonId(context.supabase, context.userId, data.salonId);
@@ -506,7 +506,7 @@ export const clearChatMessages = createServerFn({ method: "POST" })
 
 /* -------------------- Resolve current salon (utility for clients) -------------------- */
 export const getMySalon = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([withSalonContext])
   .handler(async ({ context }) => {
     const salonId = await resolveSalonId(context.supabase, context.userId);
     const { data: salon } = await context.supabase.from("salons").select("*").eq("id", salonId).maybeSingle();
