@@ -14,6 +14,42 @@ export type Database = {
   }
   public: {
     Tables: {
+      activity_log: {
+        Row: {
+          action: string
+          actor: string | null
+          created_at: string
+          entity: string | null
+          entity_id: string | null
+          id: string
+          metadata: Json
+          occurred_at: string
+          source: string
+        }
+        Insert: {
+          action: string
+          actor?: string | null
+          created_at?: string
+          entity?: string | null
+          entity_id?: string | null
+          id?: string
+          metadata?: Json
+          occurred_at?: string
+          source: string
+        }
+        Update: {
+          action?: string
+          actor?: string | null
+          created_at?: string
+          entity?: string | null
+          entity_id?: string | null
+          id?: string
+          metadata?: Json
+          occurred_at?: string
+          source?: string
+        }
+        Relationships: []
+      }
       ai_employees: {
         Row: {
           active: boolean
