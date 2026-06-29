@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { LayoutDashboard, ListChecks, MessageCircle, CalendarDays, Settings2, Receipt, Network, BarChart3 } from "lucide-react";
+import { LayoutDashboard, ListChecks, MessageCircle, CalendarDays, Settings2, Receipt, Network, BarChart3, Radio } from "lucide-react";
 
 import { Dashboard } from "@/components/salon/Dashboard";
 import { TaskManager } from "@/components/salon/TaskManager";
@@ -10,6 +10,7 @@ import { Admin } from "@/components/salon/Admin";
 import { Cashier } from "@/components/salon/Cashier";
 import { ExternalBranches } from "@/components/salon/ExternalBranches";
 import { BranchOverview } from "@/components/salon/BranchOverview";
+import { ControlCenter } from "@/components/salon/ControlCenter";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -23,10 +24,11 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-type TabId = "dashboard" | "cashier" | "branches" | "overview" | "tasks" | "chat" | "schedules" | "admin";
+type TabId = "dashboard" | "control" | "cashier" | "branches" | "overview" | "tasks" | "chat" | "schedules" | "admin";
 
 const TABS: { id: TabId; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "dashboard", label: "لوحة القيادة", icon: LayoutDashboard },
+  { id: "control", label: "مركز التحكم", icon: Radio },
   { id: "cashier", label: "الكاشير", icon: Receipt },
   { id: "branches", label: "الفروع", icon: Network },
   { id: "overview", label: "نظرة فرع", icon: BarChart3 },
@@ -48,6 +50,8 @@ function Index() {
             onGoTasks={() => setTab("tasks")}
             onGoCashier={() => setTab("cashier")}
           />
+        ) : tab === "control" ? (
+          <ControlCenter />
         ) : tab === "cashier" ? (
           <Cashier />
         ) : tab === "branches" ? (
