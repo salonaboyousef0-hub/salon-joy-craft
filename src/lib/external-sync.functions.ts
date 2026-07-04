@@ -3,22 +3,18 @@ import { z } from "zod";
 
 const SourceWithManager = z.enum(["cashier", "booking", "manager"]);
 
-// All data now lives in the single Lovable Cloud database. The "source" field
-// is kept as a logical label for the Activity Log / Control Center UI, but
-// every read goes through the built-in admin client — no external projects.
-const READ_WHITELIST = [
-  "operations",
-  "expenses",
-  "withdrawals",
-  "attendance",
-  "employees",
-  "clients",
-  "services",
+// Cashier data lives in an external Supabase project (via CASHIER_SUPABASE_URL
+// + CASHIER_SERVICE_ROLE_KEY). Booking data still lives in Lovable Cloud.
+const LOCAL_WHITELIST = [
   "bookings",
+  "clients",
+  "employees",
+  "services",
 ] as const;
 
 /**
- * Read a whitelisted table from the local Lovable Cloud database.
+ * Read a whitelisted table. `source: "cashier"` hits the external project,
+ * anything else reads from the local Lovable Cloud database.
  */
 export const readExternalTable = createServerFn({ method: "POST" })
   .inputValidator(
@@ -32,17 +28,27 @@ export const readExternalTable = createServerFn({ method: "POST" })
     }),
   )
   .handler(async ({ data }) => {
-    if (!READ_WHITELIST.includes(data.table as any)) {
-      return { rows: [] as any[], error: `Table '${data.table}' not allowed` };
-    }
     try {
-      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-      let q = (supabaseAdmin as any).from(data.table).select("*").limit(data.limit);
+      let client: any;
+      if (data.source === "cashier") {
+        const { cashierClient, isCashierAllowed } = await import("./external-sync.server");
+        if (!isCashierAllowed(data.table)) {
+          return { rows: [] as any[], error: `Table '${data.table}' not allowed for cashier` };
+        }
+        client = cashierClient();
+      } else {
+        if (!(LOCAL_WHITELIST as readonly string[]).includes(data.table)) {
+          return { rows: [] as any[], error: `Table '${data.table}' not allowed` };
+        }
+        const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+        client = supabaseAdmin;
+      }
+      let q = client.from(data.table).select("*").limit(data.limit);
       q = q.order(data.orderBy, { ascending: data.ascending });
       if (data.since) q = q.gte(data.orderBy, data.since);
       const { data: rows, error } = await q;
       if (error) {
-        const retry = await (supabaseAdmin as any).from(data.table).select("*").limit(data.limit);
+        const retry = await client.from(data.table).select("*").limit(data.limit);
         if (retry.error) return { rows: [], error: retry.error.message };
         return { rows: retry.data ?? [], error: null };
       }
@@ -112,16 +118,24 @@ export const controlCenterSnapshot = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const limit = data?.limit ?? 20;
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { cashierClient } = await import("./external-sync.server");
+    let cashier: any = null;
+    let cashierError: string | null = null;
+    try {
+      cashier = cashierClient();
+    } catch (e: any) {
+      cashierError = e?.message ?? "cashier client unavailable";
+    }
 
-    async function safeFetch(table: string) {
-      if (!READ_WHITELIST.includes(table as any)) return { rows: [], error: "not allowed" };
+    async function safeFetch(client: any, table: string, fallbackError: string | null = null) {
+      if (!client) return { rows: [] as any[], error: fallbackError ?? "client unavailable" };
       try {
-        let res = await (supabaseAdmin as any)
+        let res = await client
           .from(table)
           .select("*")
           .order("created_at", { ascending: false })
           .limit(limit);
-        if (res.error) res = await (supabaseAdmin as any).from(table).select("*").limit(limit);
+        if (res.error) res = await client.from(table).select("*").limit(limit);
         return { rows: res.data ?? [], error: res.error?.message ?? null };
       } catch (e: any) {
         return { rows: [], error: e?.message ?? "fetch failed" };
@@ -130,6 +144,7 @@ export const controlCenterSnapshot = createServerFn({ method: "POST" })
 
     const [
       cashierOps,
+      cashierInvoices,
       cashierExpenses,
       cashierWithdrawals,
       cashierAttendance,
@@ -138,20 +153,21 @@ export const controlCenterSnapshot = createServerFn({ method: "POST" })
       bookingBookings,
       bookingClients,
     ] = await Promise.all([
-      safeFetch("operations"),
-      safeFetch("expenses"),
-      safeFetch("withdrawals"),
-      safeFetch("attendance"),
-      safeFetch("employees"),
-      safeFetch("clients"),
-      safeFetch("bookings"),
-      safeFetch("clients"),
+      safeFetch(cashier, "operations", cashierError),
+      safeFetch(cashier, "invoices", cashierError),
+      safeFetch(cashier, "expenses", cashierError),
+      safeFetch(cashier, "withdrawals", cashierError),
+      safeFetch(cashier, "attendance", cashierError),
+      safeFetch(cashier, "employees", cashierError),
+      safeFetch(cashier, "clients", cashierError),
+      safeFetch(supabaseAdmin, "bookings"),
+      safeFetch(supabaseAdmin, "clients"),
     ]);
 
     return {
       cashier: {
         operations: cashierOps,
-        invoices: { rows: [], error: null },
+        invoices: cashierInvoices,
         expenses: cashierExpenses,
         withdrawals: cashierWithdrawals,
         attendance: cashierAttendance,
