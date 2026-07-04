@@ -1,17 +1,29 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
-const SourceSchema = z.enum(["cashier", "booking"]);
 const SourceWithManager = z.enum(["cashier", "booking", "manager"]);
 
+// All data now lives in the single Lovable Cloud database. The "source" field
+// is kept as a logical label for the Activity Log / Control Center UI, but
+// every read goes through the built-in admin client — no external projects.
+const READ_WHITELIST = [
+  "operations",
+  "expenses",
+  "withdrawals",
+  "attendance",
+  "employees",
+  "clients",
+  "services",
+  "bookings",
+] as const;
+
 /**
- * Read a whitelisted table from one of the external Supabase projects
- * (cashier or booking) using its service-role key.
+ * Read a whitelisted table from the local Lovable Cloud database.
  */
 export const readExternalTable = createServerFn({ method: "POST" })
   .inputValidator(
     z.object({
-      source: SourceSchema,
+      source: SourceWithManager,
       table: z.string().min(1).max(80),
       limit: z.number().int().min(1).max(500).default(50),
       since: z.string().optional(),
@@ -20,20 +32,17 @@ export const readExternalTable = createServerFn({ method: "POST" })
     }),
   )
   .handler(async ({ data }) => {
-    const { externalClient, isAllowed } = await import("./external-sync.server");
-    if (!isAllowed(data.source, data.table)) {
-      return { rows: [] as any[], error: `Table '${data.table}' not allowed for ${data.source}` };
+    if (!READ_WHITELIST.includes(data.table as any)) {
+      return { rows: [] as any[], error: `Table '${data.table}' not allowed` };
     }
     try {
-      const client = externalClient(data.source);
-      let q = client.from(data.table).select("*").limit(data.limit);
-      // best-effort ordering: if column doesn't exist supabase returns error — fall back below
+      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+      let q = (supabaseAdmin as any).from(data.table).select("*").limit(data.limit);
       q = q.order(data.orderBy, { ascending: data.ascending });
       if (data.since) q = q.gte(data.orderBy, data.since);
       const { data: rows, error } = await q;
       if (error) {
-        // Retry without ordering if the order column doesn't exist
-        const retry = await client.from(data.table).select("*").limit(data.limit);
+        const retry = await (supabaseAdmin as any).from(data.table).select("*").limit(data.limit);
         if (retry.error) return { rows: [], error: retry.error.message };
         return { rows: retry.data ?? [], error: null };
       }
@@ -102,15 +111,17 @@ export const controlCenterSnapshot = createServerFn({ method: "POST" })
   .inputValidator(z.object({ limit: z.number().int().min(1).max(100).default(20) }).optional())
   .handler(async ({ data }) => {
     const limit = data?.limit ?? 20;
-    const { externalClient, READ_WHITELIST } = await import("./external-sync.server");
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-    async function safeFetch(source: "cashier" | "booking", table: string) {
-      if (!READ_WHITELIST[source].includes(table)) return { rows: [], error: "not allowed" };
+    async function safeFetch(table: string) {
+      if (!READ_WHITELIST.includes(table as any)) return { rows: [], error: "not allowed" };
       try {
-        const client = externalClient(source);
-        // Try ordering by created_at; fall back to no order
-        let res = await client.from(table).select("*").order("created_at", { ascending: false }).limit(limit);
-        if (res.error) res = await client.from(table).select("*").limit(limit);
+        let res = await (supabaseAdmin as any)
+          .from(table)
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(limit);
+        if (res.error) res = await (supabaseAdmin as any).from(table).select("*").limit(limit);
         return { rows: res.data ?? [], error: res.error?.message ?? null };
       } catch (e: any) {
         return { rows: [], error: e?.message ?? "fetch failed" };
@@ -119,7 +130,6 @@ export const controlCenterSnapshot = createServerFn({ method: "POST" })
 
     const [
       cashierOps,
-      cashierInvoices,
       cashierExpenses,
       cashierWithdrawals,
       cashierAttendance,
@@ -128,21 +138,20 @@ export const controlCenterSnapshot = createServerFn({ method: "POST" })
       bookingBookings,
       bookingClients,
     ] = await Promise.all([
-      safeFetch("cashier", "operations"),
-      safeFetch("cashier", "invoices"),
-      safeFetch("cashier", "expenses"),
-      safeFetch("cashier", "withdrawals"),
-      safeFetch("cashier", "attendance"),
-      safeFetch("cashier", "employees"),
-      safeFetch("cashier", "clients"),
-      safeFetch("booking", "bookings"),
-      safeFetch("booking", "clients"),
+      safeFetch("operations"),
+      safeFetch("expenses"),
+      safeFetch("withdrawals"),
+      safeFetch("attendance"),
+      safeFetch("employees"),
+      safeFetch("clients"),
+      safeFetch("bookings"),
+      safeFetch("clients"),
     ]);
 
     return {
       cashier: {
         operations: cashierOps,
-        invoices: cashierInvoices,
+        invoices: { rows: [], error: null },
         expenses: cashierExpenses,
         withdrawals: cashierWithdrawals,
         attendance: cashierAttendance,
