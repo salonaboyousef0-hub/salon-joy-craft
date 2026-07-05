@@ -142,25 +142,53 @@ export const controlCenterSnapshot = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const limit = data?.limit ?? 20;
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { cashierClient } = await import("./external-sync.server");
+    const { cashierClient, getCashierSalonId } = await import("./external-sync.server");
     let cashier: any = null;
     let cashierError: string | null = null;
+    let cashierSalonId: string | null = null;
     try {
       cashier = cashierClient();
     } catch (e: any) {
       cashierError = e?.message ?? "cashier client unavailable";
+      console.error("[external-sync] cashier client init failed:", cashierError);
+    }
+    if (cashier) {
+      try {
+        cashierSalonId = await getCashierSalonId();
+      } catch (e: any) {
+        cashierError = e?.message ?? "cashier salon_id unavailable";
+        console.error("[external-sync] cashier salon_id lookup failed:", cashierError);
+        cashier = null;
+      }
     }
 
     async function safeFetch(client: any, table: string, fallbackError: string | null = null) {
       if (!client) return { rows: [] as any[], error: fallbackError ?? "client unavailable" };
       try {
-        let res = await client
+        let q = client
           .from(table)
           .select("*")
           .order("created_at", { ascending: false })
           .limit(limit);
-        if (res.error) res = await client.from(table).select("*").limit(limit);
-        return { rows: res.data ?? [], error: res.error?.message ?? null };
+        if (client === cashier) {
+          if (cashierSalonId) q = q.eq("salon_id", cashierSalonId);
+          q = q.is("deleted_at", null);
+        }
+        const res = await q;
+        if (res.error) {
+          console.error(`[external-sync] snapshot fetch ${table} failed: ${res.error.message}`);
+          return { rows: [], error: res.error.message };
+        }
+        const rows =
+          client === cashier
+            ? (res.data ?? []).map((r: any) => ({
+                id: r.id,
+                created_at: r.created_at,
+                updated_at: r.updated_at,
+                ...(r.data && typeof r.data === "object" ? r.data : {}),
+              }))
+            : (res.data ?? []);
+        return { rows, error: null };
       } catch (e: any) {
         return { rows: [], error: e?.message ?? "fetch failed" };
       }
@@ -177,13 +205,13 @@ export const controlCenterSnapshot = createServerFn({ method: "POST" })
       bookingBookings,
       bookingClients,
     ] = await Promise.all([
-      safeFetch(cashier, "operations", cashierError),
-      safeFetch(cashier, "invoices", cashierError),
-      safeFetch(cashier, "expenses", cashierError),
-      safeFetch(cashier, "withdrawals", cashierError),
-      safeFetch(cashier, "attendance", cashierError),
-      safeFetch(cashier, "employees", cashierError),
-      safeFetch(cashier, "clients", cashierError),
+      safeFetch(cashier, "salon_transactions", cashierError),
+      safeFetch(cashier, "salon_bookings", cashierError),
+      safeFetch(cashier, "salon_expenses", cashierError),
+      safeFetch(cashier, "salon_withdrawals", cashierError),
+      safeFetch(cashier, "salon_attendance", cashierError),
+      safeFetch(cashier, "salon_employees", cashierError),
+      safeFetch(cashier, "salon_clients", cashierError),
       safeFetch(supabaseAdmin, "bookings"),
       safeFetch(supabaseAdmin, "clients"),
     ]);
