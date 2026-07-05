@@ -206,7 +206,7 @@ export const controlCenterSnapshot = createServerFn({ method: "POST" })
       bookingClients,
     ] = await Promise.all([
       safeFetch(cashier, "salon_transactions", cashierError),
-      safeFetch(cashier, "salon_bookings", cashierError),
+      Promise.resolve({ rows: [], error: null }),
       safeFetch(cashier, "salon_expenses", cashierError),
       safeFetch(cashier, "salon_withdrawals", cashierError),
       safeFetch(cashier, "salon_attendance", cashierError),
