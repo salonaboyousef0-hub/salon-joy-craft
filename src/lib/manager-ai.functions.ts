@@ -343,21 +343,41 @@ export const askManager = createServerFn({ method: "POST" })
                 branch: z.string().max(120).optional(),
               })
               .parse(args);
-            let q = supabaseAdmin
-              .from("operations")
-              .select("id, service, amount, barber, assistant, notes, source, branch, created_at")
+            const { cashierClient, getCashierSalonId } = await import("./external-sync.server");
+            const cashier = cashierClient();
+            const salonId = await getCashierSalonId();
+            let q = cashier
+              .from("salon_transactions")
+              .select("id, data, created_at")
+              .eq("salon_id", salonId)
+              .is("deleted_at", null)
               .order("created_at", { ascending: false })
               .limit(parsed.limit ?? 20);
-            if (parsed.barber) q = q.eq("barber", normalizeBarber(parsed.barber));
-            if (parsed.branch) q = q.eq("branch", parsed.branch);
             if (parsed.today_only) {
               const start = new Date();
               start.setHours(0, 0, 0, 0);
               q = q.gte("created_at", start.toISOString());
             }
-            const { data: rows, error } = await q;
-            if (error) throw new Error(error.message);
-            messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ ok: true, operations: rows ?? [] }) });
+            const { data: raw, error } = await q;
+            if (error) {
+              console.error("[list_operations] cashier read failed:", error.message);
+              throw new Error(error.message);
+            }
+            let operations = (raw ?? []).map((r: any) => ({
+              id: r.id,
+              created_at: r.created_at,
+              ...(r.data && typeof r.data === "object" ? r.data : {}),
+            }));
+            if (parsed.barber) {
+              const wanted = normalizeBarber(parsed.barber);
+              operations = operations.filter(
+                (o: any) => o.barber === wanted || o.employee === wanted || o.employee_name === wanted,
+              );
+            }
+            if (parsed.branch) {
+              operations = operations.filter((o: any) => o.branch === parsed.branch);
+            }
+            messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ ok: true, operations }) });
           } else if (name === "delete_operation") {
             const parsed = z.object({ id: z.string().uuid() }).parse(args);
             const { error } = await supabaseAdmin.from("operations").delete().eq("id", parsed.id);
@@ -405,23 +425,41 @@ export const askManager = createServerFn({ method: "POST" })
             messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ ok: true, operation: row }) });
           } else if (name === "get_stats") {
             const parsedStats = z.object({ branch: z.string().max(120).optional() }).parse(args);
+            const { cashierClient, getCashierSalonId } = await import("./external-sync.server");
+            const cashier = cashierClient();
+            const salonId = await getCashierSalonId();
             const now = new Date();
             const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
             const startMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-            const bt = supabaseAdmin.from("operations").select("amount, barber, branch").gte("created_at", startToday);
-            const bm = supabaseAdmin.from("operations").select("amount, barber, branch").gte("created_at", startMonth);
-            const [t, m] = await Promise.all([
-              parsedStats.branch ? bt.eq("branch", parsedStats.branch) : bt,
-              parsedStats.branch ? bm.eq("branch", parsedStats.branch) : bm,
-            ]);
-            if (t.error) throw new Error(t.error.message);
-            if (m.error) throw new Error(m.error.message);
-            const dailyRevenue = (t.data ?? []).reduce((s, r) => s + Number(r.amount), 0);
-            const monthlyRevenue = (m.data ?? []).reduce((s, r) => s + Number(r.amount), 0);
+            const { data: raw, error } = await cashier
+              .from("salon_transactions")
+              .select("id, data, created_at")
+              .eq("salon_id", salonId)
+              .is("deleted_at", null)
+              .gte("created_at", startMonth)
+              .order("created_at", { ascending: false })
+              .limit(5000);
+            if (error) {
+              console.error("[get_stats] cashier read failed:", error.message);
+              throw new Error(error.message);
+            }
+            const flat = (raw ?? []).map((r: any) => {
+              const d = (r.data && typeof r.data === "object" ? r.data : {}) as Record<string, unknown>;
+              return {
+                created_at: r.created_at as string,
+                amount: Number(d.amount ?? d.total ?? d.price ?? 0),
+                barber: String(d.barber ?? d.employee ?? d.employee_name ?? "غير محدد"),
+                branch: (d.branch ?? d.branch_name ?? "غير محدد") as string,
+              };
+            });
+            const scoped = parsedStats.branch ? flat.filter((r) => r.branch === parsedStats.branch) : flat;
+            const today = scoped.filter((r) => r.created_at >= startToday);
+            const dailyRevenue = today.reduce((s, r) => s + r.amount, 0);
+            const monthlyRevenue = scoped.reduce((s, r) => s + r.amount, 0);
             const perBarber: Record<string, number> = {};
-            for (const r of m.data ?? []) perBarber[r.barber] = (perBarber[r.barber] ?? 0) + Number(r.amount);
+            for (const r of scoped) perBarber[r.barber] = (perBarber[r.barber] ?? 0) + r.amount;
             const perBranch: Record<string, number> = {};
-            for (const r of m.data ?? []) perBranch[r.branch] = (perBranch[r.branch] ?? 0) + Number(r.amount);
+            for (const r of scoped) perBranch[r.branch] = (perBranch[r.branch] ?? 0) + r.amount;
             messages.push({
               role: "tool",
               tool_call_id: call.id,
@@ -429,9 +467,9 @@ export const askManager = createServerFn({ method: "POST" })
                 ok: true,
                 branch: parsedStats.branch ?? null,
                 dailyRevenue,
-                dailyOps: (t.data ?? []).length,
+                dailyOps: today.length,
                 monthlyRevenue,
-                monthlyOps: (m.data ?? []).length,
+                monthlyOps: scoped.length,
                 perBarberMonth: perBarber,
                 perBranchMonth: perBranch,
               }),
@@ -449,12 +487,27 @@ export const askManager = createServerFn({ method: "POST" })
             messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ ok: true, branch: row }) });
           } else if (name === "list_employees") {
             const p = z.object({ role: z.string().optional(), branch: z.string().optional() }).parse(args);
-            let q = supabaseAdmin.from("ai_employees" as any).select("*").eq("active", true);
-            if (p.role) q = q.eq("role", p.role);
-            if (p.branch) q = q.eq("branch", p.branch);
-            const { data: rows, error } = await q;
-            if (error) throw new Error(error.message);
-            messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ ok: true, employees: rows ?? [] }) });
+            const { cashierClient, getCashierSalonId } = await import("./external-sync.server");
+            const cashier = cashierClient();
+            const salonId = await getCashierSalonId();
+            const { data: raw, error } = await cashier
+              .from("salon_employees")
+              .select("id, data, created_at")
+              .eq("salon_id", salonId)
+              .is("deleted_at", null)
+              .limit(500);
+            if (error) {
+              console.error("[list_employees] cashier read failed:", error.message);
+              throw new Error(error.message);
+            }
+            let employees = (raw ?? []).map((r: any) => ({
+              id: r.id,
+              created_at: r.created_at,
+              ...(r.data && typeof r.data === "object" ? r.data : {}),
+            }));
+            if (p.role) employees = employees.filter((e: any) => e.role === p.role);
+            if (p.branch) employees = employees.filter((e: any) => e.branch === p.branch);
+            messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ ok: true, employees }) });
           } else if (name === "set_target") {
             const p = z.object({
               entity_type: z.enum(["barber", "branch"]),

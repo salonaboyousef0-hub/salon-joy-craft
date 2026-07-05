@@ -21,7 +21,7 @@ export const readExternalTable = createServerFn({ method: "POST" })
     z.object({
       source: SourceWithManager,
       table: z.string().min(1).max(80),
-      limit: z.number().int().min(1).max(500).default(50),
+      limit: z.number().int().min(1).max(5000).default(50),
       since: z.string().optional(),
       orderBy: z.string().max(80).default("created_at"),
       ascending: z.boolean().default(false),
@@ -30,12 +30,20 @@ export const readExternalTable = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     try {
       let client: any;
+      let scopedSalonId: string | null = null;
       if (data.source === "cashier") {
-        const { cashierClient, isCashierAllowed } = await import("./external-sync.server");
+        const { cashierClient, isCashierAllowed, getCashierSalonId } = await import("./external-sync.server");
         if (!isCashierAllowed(data.table)) {
           return { rows: [] as any[], error: `Table '${data.table}' not allowed for cashier` };
         }
         client = cashierClient();
+        try {
+          scopedSalonId = await getCashierSalonId();
+        } catch (e: any) {
+          const msg = e?.message ?? "cashier salon_id unavailable";
+          console.error("[external-sync] cashier salon_id lookup failed:", msg);
+          return { rows: [] as any[], error: msg };
+        }
       } else {
         if (!(LOCAL_WHITELIST as readonly string[]).includes(data.table)) {
           return { rows: [] as any[], error: `Table '${data.table}' not allowed` };
@@ -46,15 +54,31 @@ export const readExternalTable = createServerFn({ method: "POST" })
       let q = client.from(data.table).select("*").limit(data.limit);
       q = q.order(data.orderBy, { ascending: data.ascending });
       if (data.since) q = q.gte(data.orderBy, data.since);
+      if (data.source === "cashier") {
+        if (scopedSalonId) q = q.eq("salon_id", scopedSalonId);
+        q = q.is("deleted_at", null);
+      }
       const { data: rows, error } = await q;
       if (error) {
-        const retry = await client.from(data.table).select("*").limit(data.limit);
-        if (retry.error) return { rows: [], error: retry.error.message };
-        return { rows: retry.data ?? [], error: null };
+        console.error(
+          `[external-sync] read failed source=${data.source} table=${data.table}: ${error.message}`,
+        );
+        return { rows: [], error: error.message };
       }
-      return { rows: rows ?? [], error: null };
+      const normalized =
+        data.source === "cashier"
+          ? (rows ?? []).map((r: any) => ({
+              id: r.id,
+              created_at: r.created_at,
+              updated_at: r.updated_at,
+              ...(r.data && typeof r.data === "object" ? r.data : {}),
+            }))
+          : (rows ?? []);
+      return { rows: normalized, error: null };
     } catch (e: any) {
-      return { rows: [] as any[], error: e?.message ?? "unknown error" };
+      const msg = e?.message ?? "unknown error";
+      console.error(`[external-sync] unexpected error source=${data.source} table=${data.table}:`, msg);
+      return { rows: [] as any[], error: msg };
     }
   });
 
@@ -118,25 +142,53 @@ export const controlCenterSnapshot = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const limit = data?.limit ?? 20;
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { cashierClient } = await import("./external-sync.server");
+    const { cashierClient, getCashierSalonId } = await import("./external-sync.server");
     let cashier: any = null;
     let cashierError: string | null = null;
+    let cashierSalonId: string | null = null;
     try {
       cashier = cashierClient();
     } catch (e: any) {
       cashierError = e?.message ?? "cashier client unavailable";
+      console.error("[external-sync] cashier client init failed:", cashierError);
+    }
+    if (cashier) {
+      try {
+        cashierSalonId = await getCashierSalonId();
+      } catch (e: any) {
+        cashierError = e?.message ?? "cashier salon_id unavailable";
+        console.error("[external-sync] cashier salon_id lookup failed:", cashierError);
+        cashier = null;
+      }
     }
 
     async function safeFetch(client: any, table: string, fallbackError: string | null = null) {
       if (!client) return { rows: [] as any[], error: fallbackError ?? "client unavailable" };
       try {
-        let res = await client
+        let q = client
           .from(table)
           .select("*")
           .order("created_at", { ascending: false })
           .limit(limit);
-        if (res.error) res = await client.from(table).select("*").limit(limit);
-        return { rows: res.data ?? [], error: res.error?.message ?? null };
+        if (client === cashier) {
+          if (cashierSalonId) q = q.eq("salon_id", cashierSalonId);
+          q = q.is("deleted_at", null);
+        }
+        const res = await q;
+        if (res.error) {
+          console.error(`[external-sync] snapshot fetch ${table} failed: ${res.error.message}`);
+          return { rows: [], error: res.error.message };
+        }
+        const rows =
+          client === cashier
+            ? (res.data ?? []).map((r: any) => ({
+                id: r.id,
+                created_at: r.created_at,
+                updated_at: r.updated_at,
+                ...(r.data && typeof r.data === "object" ? r.data : {}),
+              }))
+            : (res.data ?? []);
+        return { rows, error: null };
       } catch (e: any) {
         return { rows: [], error: e?.message ?? "fetch failed" };
       }
@@ -153,13 +205,13 @@ export const controlCenterSnapshot = createServerFn({ method: "POST" })
       bookingBookings,
       bookingClients,
     ] = await Promise.all([
-      safeFetch(cashier, "operations", cashierError),
-      safeFetch(cashier, "invoices", cashierError),
-      safeFetch(cashier, "expenses", cashierError),
-      safeFetch(cashier, "withdrawals", cashierError),
-      safeFetch(cashier, "attendance", cashierError),
-      safeFetch(cashier, "employees", cashierError),
-      safeFetch(cashier, "clients", cashierError),
+      safeFetch(cashier, "salon_transactions", cashierError),
+      Promise.resolve({ rows: [], error: null }),
+      safeFetch(cashier, "salon_expenses", cashierError),
+      safeFetch(cashier, "salon_withdrawals", cashierError),
+      safeFetch(cashier, "salon_attendance", cashierError),
+      safeFetch(cashier, "salon_employees", cashierError),
+      safeFetch(cashier, "salon_clients", cashierError),
       safeFetch(supabaseAdmin, "bookings"),
       safeFetch(supabaseAdmin, "clients"),
     ]);
