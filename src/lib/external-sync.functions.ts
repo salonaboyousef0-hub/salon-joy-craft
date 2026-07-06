@@ -28,25 +28,18 @@ export const readExternalTable = createServerFn({ method: "POST" })
     }),
   )
   .handler(async ({ data }) => {
-    try {
       let client: any;
       let scopedSalonId: string | null = null;
       if (data.source === "cashier") {
         const { cashierClient, isCashierAllowed, getCashierSalonId } = await import("./external-sync.server");
         if (!isCashierAllowed(data.table)) {
-          return { rows: [] as any[], error: `Table '${data.table}' not allowed for cashier` };
+          throw new Error(`Table '${data.table}' not allowed for cashier`);
         }
         client = cashierClient();
-        try {
-          scopedSalonId = await getCashierSalonId();
-        } catch (e: any) {
-          const msg = e?.message ?? "cashier salon_id unavailable";
-          console.error("[external-sync] cashier salon_id lookup failed:", msg);
-          return { rows: [] as any[], error: msg };
-        }
+        scopedSalonId = await getCashierSalonId();
       } else {
         if (!(LOCAL_WHITELIST as readonly string[]).includes(data.table)) {
-          return { rows: [] as any[], error: `Table '${data.table}' not allowed` };
+          throw new Error(`Table '${data.table}' not allowed`);
         }
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
         client = supabaseAdmin;
@@ -63,7 +56,7 @@ export const readExternalTable = createServerFn({ method: "POST" })
         console.error(
           `[external-sync] read failed source=${data.source} table=${data.table}: ${error.message}`,
         );
-        return { rows: [], error: error.message };
+        throw new Error(`فشل قراءة جدول ${data.table} من ${data.source}: ${error.message}`);
       }
       const normalized =
         data.source === "cashier"
@@ -75,11 +68,6 @@ export const readExternalTable = createServerFn({ method: "POST" })
             }))
           : (rows ?? []);
       return { rows: normalized, error: null };
-    } catch (e: any) {
-      const msg = e?.message ?? "unknown error";
-      console.error(`[external-sync] unexpected error source=${data.source} table=${data.table}:`, msg);
-      return { rows: [] as any[], error: msg };
-    }
   });
 
 /** Append an entry to the manager's activity_log. */
