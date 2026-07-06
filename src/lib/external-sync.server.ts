@@ -53,11 +53,11 @@ export async function getCashierSalonId(): Promise<string> {
       .maybeSingle();
     if (error) {
       _cashierSalonIdPromise = undefined;
-      throw new Error(`[cashier] failed to read salons: ${error.message}`);
+      throw new Error(`لم يتم العثور على صالون في مشروع الكاشير: ${error.message}`);
     }
     if (!data?.id) {
       _cashierSalonIdPromise = undefined;
-      throw new Error("[cashier] salons table is empty — cannot resolve salon_id");
+      throw new Error("لم يتم العثور على صالون في مشروع الكاشير: الجدول فاضي");
     }
     _cashierSalonId = data.id as string;
     return _cashierSalonId;
