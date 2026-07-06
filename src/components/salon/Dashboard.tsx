@@ -15,12 +15,14 @@ function StatCard({
   onChange,
   readOnly,
   hint,
+  error,
 }: {
   label: string;
   value: string;
   onChange?: (v: string) => void;
   readOnly?: boolean;
   hint?: string;
+  error?: string | null;
 }) {
   return (
     <div className="rounded-2xl border border-border bg-card p-4 shadow-[0_0_0_1px_var(--border)]">
@@ -28,7 +30,11 @@ function StatCard({
         <div className="text-xs text-muted-foreground">{label}</div>
         {hint ? <div className="text-[9px] text-[var(--gold)]">{hint}</div> : null}
       </div>
-      {readOnly ? (
+      {error ? (
+        <div className="mt-2 text-[11px] leading-snug text-red-500 whitespace-pre-wrap break-words">
+          {error}
+        </div>
+      ) : readOnly ? (
         <div className="mt-2 text-2xl font-bold gold-text">{value || "0"}</div>
       ) : (
         <input
@@ -78,6 +84,7 @@ export function Dashboard({
 
   const [loading, setLoading] = useState(false);
   const [live, setLive] = useState<{ dailyRevenue: number; dailyOps: number; monthlyRevenue: number; perBranchMonth?: Record<string, number> } | null>(null);
+  const [liveError, setLiveError] = useState<string | null>(null);
   const ask = useServerFn(askManager);
   const fetchStats = useServerFn(getStats);
 
@@ -114,8 +121,11 @@ export function Dashboard({
         monthlyRevenue: res.monthlyRevenue,
         perBranchMonth: res.perBranchMonth,
       });
+      setLiveError(null);
     } catch (e) {
       console.error(e);
+      setLive(null);
+      setLiveError(e instanceof Error ? e.message : "تعذر قراءة بيانات الكاشير");
     }
   }
 
@@ -156,9 +166,9 @@ export function Dashboard({
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <StatCard label="إيرادات اليوم" value={String(live?.dailyRevenue ?? 0)} readOnly hint="مباشر" />
-        <StatCard label="عمليات اليوم" value={String(live?.dailyOps ?? 0)} readOnly hint="مباشر" />
-        <StatCard label="إيراد الشهر" value={String(live?.monthlyRevenue ?? 0)} readOnly hint="مباشر" />
+        <StatCard label="إيرادات اليوم" value={String(live?.dailyRevenue ?? 0)} readOnly hint="مباشر" error={liveError} />
+        <StatCard label="عمليات اليوم" value={String(live?.dailyOps ?? 0)} readOnly hint="مباشر" error={liveError} />
+        <StatCard label="إيراد الشهر" value={String(live?.monthlyRevenue ?? 0)} readOnly hint="مباشر" error={liveError} />
         <StatCard label="مصاريف" value={expenses} onChange={saveExpense} />
       </div>
 
